@@ -1,29 +1,69 @@
-import pandas as pd
-import numpy as np
+from datasets import load_dataset
+from transformers import AutoTokenizer
+import torch
 
-Vocabulary = {"No": 0, "i": 1, "am": 2, "your": 3, "father": 4, ".": 5}
 
-tokens = ["No", "i", "am", "your", "father", "."]
+MAX_SAMPLES = 500        
+MAX_LENGTH = 32         
 
-ids = [Vocabulary[token] for token in tokens]
 
-dfvocab = pd.DataFrame(list(Vocabulary.items()), columns=["word", "id"])
+dataset = load_dataset("bentrevett/multi30k", split="train")
 
-sizevocab = len(Vocabulary)
 
-d_model = 64
+dataset = dataset.select(range(MAX_SAMPLES))
 
-embedding_matrix = np.random.rand(sizevocab, d_model)
 
-sentenceembeddings = [embedding_matrix[id] for id in ids]
+tokenizer = AutoTokenizer.from_pretrained("bert-base-multilingual-cased")
 
-X = np.array(sentenceembeddings)
-X = X.reshape(1, len(tokens), d_model)
+START_TOKEN = "[CLS]"
+END_TOKEN = "[SEP]"
+PAD_TOKEN_ID = tokenizer.pad_token_id
+
+
+def process_example(example):
+    src = example["en"]  # inglês
+    tgt = example["de"]  # alemão
+
+    tgt = START_TOKEN + " " + tgt + " " + END_TOKEN
+
+    src_tokens = tokenizer(
+        src,
+        padding="max_length",
+        truncation=True,
+        max_length=MAX_LENGTH,
+        return_tensors="pt"
+    )
+
+    tgt_tokens = tokenizer(
+        tgt,
+        padding="max_length",
+        truncation=True,
+        max_length=MAX_LENGTH,
+        return_tensors="pt"
+    )
+
+    return {
+        "encoder_input": src_tokens["input_ids"].squeeze(0),
+        "decoder_input": tgt_tokens["input_ids"].squeeze(0)
+    }
+
+
+processed_dataset = dataset.map(process_example)
+
+
+def get_tensors():
+    encoder_inputs = torch.stack(processed_dataset["encoder_input"])
+    decoder_inputs = torch.stack(processed_dataset["decoder_input"])
+
+    return encoder_inputs, decoder_inputs
+
 
 if __name__ == "__main__":
+    enc, dec = get_tensors()
 
-    print(dfvocab)
-    print("ids:", ids)
-    print("embedding_matrix shape:", embedding_matrix.shape)
-    print(sentenceembeddings)
-    print("X shape:", X.shape)
+    print("Encoder shape:", enc.shape)
+    print("Decoder shape:", dec.shape)
+
+    print("\nExemplo:")
+    print("Encoder:", enc[0])
+    print("Decoder:", dec[0])
