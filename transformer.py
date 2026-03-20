@@ -1,80 +1,109 @@
-import numpy as np
-from attention import self_attention, add_and_norm, feed_forward, softmax
-from decoder import look_ahead_mask, cross_attention
+import torch
+import torch.nn as nn
+from attention import add_and_norm, FeedForward, SelfAttention, softmax
+from decoder import look_ahead_mask, CrossAttention
 
 
-def encoder_block(X, layer_id=0):
-    X_att = self_attention(X, prefix=f"encoder_self_attention_{layer_id}")
-    X_norm1 = add_and_norm(X, X_att)
+class EncoderBlock(nn.Module):
+    def __init__(self, d_model):
+        super().__init__()
+        self.self_attention = SelfAttention(d_model)
+        self.feed_forward = FeedForward(d_model)
 
-    X_ffn = feed_forward(X_norm1, prefix=f"encoder_ffn_{layer_id}")
-    X_out = add_and_norm(X_norm1, X_ffn)
+    def forward(self, X):
+        X_att, _ = self.self_attention(X)
+        X_norm1 = add_and_norm(X, X_att)
 
-    return X_out
+        X_ffn = self.feed_forward(X_norm1)
+        X_out = add_and_norm(X_norm1, X_ffn)
 
-def encoder_stack(X, num_layers=6):
-    Z = X.copy()
-
-    for layer_id in range(num_layers):
-        Z = encoder_block(Z, layer_id=layer_id)
-
-    return Z
+        return X_out
 
 
-def decoder_block(Y, Z, layer_id=0):
-    mask = look_ahead_mask(Y.shape[1])
+class EncoderStack(nn.Module):
+    def __init__(self, d_model, num_layers=6):
+        super().__init__()
+        self.layers = nn.ModuleList([EncoderBlock(d_model) for _ in range(num_layers)])
 
-    Y_att = self_attention(Y, mask=mask, prefix=f"decoder_self_attention_{layer_id}")
-    Y_norm1 = add_and_norm(Y, Y_att)
+    def forward(self, X):
+        Z = X
 
-    Y_cross = cross_attention(Z, Y_norm1, prefix=f"decoder_cross_attention_{layer_id}")
-    Y_norm2 = add_and_norm(Y_norm1, Y_cross)
+        for layer in self.layers:
+            Z = layer(Z)
 
-    Y_ffn = feed_forward(Y_norm2, prefix=f"decoder_ffn_{layer_id}")
-    Y_out = add_and_norm(Y_norm2, Y_ffn)
-
-    return Y_out
-
-
-def decoder_stack(Y, Z, num_layers=6):
-    Y_out = Y.copy()
-
-    for layer_id in range(num_layers):
-        Y_out = decoder_block(Y_out, Z, layer_id=layer_id)
-
-    return Y_out
+        return Z
 
 
-def output_projection(Y, vocab_size, params=None):
-    d_model = Y.shape[-1]
+class DecoderBlock(nn.Module):
+    def __init__(self, d_model):
+        super().__init__()
+        self.self_attention = SelfAttention(d_model)
+        self.cross_attention = CrossAttention(d_model)
+        self.feed_forward = FeedForward(d_model)
 
-    if params is None:
-        if not hasattr(output_projection, "W"):
-            output_projection.W = np.random.rand(d_model, vocab_size) * 0.01
-        W = output_projection.W
-    else:
-        W = params["W"]
+    def forward(self, Y, Z):
+        mask = look_ahead_mask(Y.shape[1], device=Y.device)
 
-    logits = Y @ W
-    probs = softmax(logits)
+        Y_att, _ = self.self_attention(Y, mask)
+        Y_norm1 = add_and_norm(Y, Y_att)
 
-    return probs
+        Y_cross = self.cross_attention(Z, Y_norm1)
+        Y_norm2 = add_and_norm(Y_norm1, Y_cross)
+
+        Y_ffn = self.feed_forward(Y_norm2)
+        Y_out = add_and_norm(Y_norm2, Y_ffn)
+
+        return Y_out
+
+
+class OutputProjection(nn.Module):
+    def __init__(self, d_model, vocab_size):
+        super().__init__()
+        self.W = nn.Parameter(torch.randn(d_model, vocab_size) * 0.01)
+
+    def forward(self, Y):
+        logits = Y @ self.W
+        return logits
+
+
+class Transformer(nn.Module):
+    def __init__(self, vocab_size, d_model=128, num_layers=2):
+        super().__init__()
+        self.d_model = d_model
+        self.encoder = EncoderStack(d_model=d_model, num_layers=num_layers)
+        self.decoder_layers = nn.ModuleList([DecoderBlock(d_model) for _ in range(num_layers)])
+        self.output_projection = OutputProjection(d_model, vocab_size)
+
+    def forward(self, encoder_input, decoder_input):
+        Z = self.encoder(encoder_input)
+
+        Y = decoder_input
+        for layer in self.decoder_layers:
+            Y = layer(Y, Z)
+
+        logits = self.output_projection(Y)
+        return logits
 
 
 def run_inference():
     vocab = ["<START>", "Thinking", "Machines", "No", "i", "am", "your", "father", ".", "<EOS>"]
 
-    encoder_input = np.random.rand(1, 2, 64)
-    Z = encoder_stack(encoder_input)
+    model = Transformer(vocab_size=len(vocab), d_model=64, num_layers=2)
+
+    encoder_input = torch.rand(1, 2, 64)
+    Z = model.encoder(encoder_input)
 
     sequence = ["<START>"]
-    Y = np.random.rand(1, 1, 64)
+    Y = torch.rand(1, 1, 64)
 
     while True:
-        Y_dec = decoder_stack(Y, Z, num_layers=2)
-        probs = output_projection(Y_dec, len(vocab))
+        for layer in model.decoder_layers:
+            Y = layer(Y, Z)
 
-        token_index = np.argmax(probs[0, -1])
+        logits = model.output_projection(Y)
+        probs = softmax(logits)
+
+        token_index = torch.argmax(probs[0, -1]).item()
         next_token = vocab[token_index]
 
         sequence.append(next_token)
@@ -82,8 +111,8 @@ def run_inference():
         if next_token == "<EOS>":
             break
 
-        new_vec = np.random.rand(1, 1, 64)
-        Y = np.concatenate([Y, new_vec], axis=1)
+        new_vec = torch.rand(1, 1, 64)
+        Y = torch.cat([Y, new_vec], dim=1)
 
         if len(sequence) > 20:
             break
