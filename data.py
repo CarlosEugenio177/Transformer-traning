@@ -3,7 +3,7 @@ from transformers import AutoTokenizer
 import torch
 from torch.utils.data import TensorDataset, DataLoader
 
-MAX_SAMPLES = 1000
+MAX_SAMPLES = 50
 MAX_LENGTH = 32
 BATCH_SIZE = 8
 
