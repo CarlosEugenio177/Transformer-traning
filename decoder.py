@@ -1,81 +1,63 @@
-import numpy as np
-from attention import softmax, scaled_dot_product_attention, init_attention_params
+import torch
+import torch.nn as nn
+from attention import softmax, scaled_dot_product_attention
 
-CROSS_ATTENTION_PARAMS = {}
 
-
-def look_ahead_mask(seq_len):
-    mask = np.zeros((seq_len, seq_len))
-    mask[np.triu_indices(seq_len, k=1)] = -np.inf
-    mask = mask[np.newaxis, :, :]
+def look_ahead_mask(seq_len, device=None):
+    mask = torch.zeros(seq_len, seq_len, device=device)
+    mask = mask.masked_fill(torch.triu(torch.ones(seq_len, seq_len, device=device), diagonal=1).bool(), float("-inf"))
+    mask = mask.unsqueeze(0)
     return mask
 
 
-def init_cross_attention_params(d_model, prefix="cross_attention"):
-    if prefix not in CROSS_ATTENTION_PARAMS:
-        CROSS_ATTENTION_PARAMS[prefix] = {
-            "W_Q": np.random.rand(d_model, d_model) * 0.01,
-            "W_K": np.random.rand(d_model, d_model) * 0.01,
-            "W_V": np.random.rand(d_model, d_model) * 0.01,
-        }
-    return CROSS_ATTENTION_PARAMS[prefix]
+class CrossAttention(nn.Module):
+    def __init__(self, d_model):
+        super().__init__()
+        self.W_Q = nn.Parameter(torch.randn(d_model, d_model) * 0.01)
+        self.W_K = nn.Parameter(torch.randn(d_model, d_model) * 0.01)
+        self.W_V = nn.Parameter(torch.randn(d_model, d_model) * 0.01)
+
+    def forward(self, encoder_out, decoder_state):
+        Q = decoder_state @ self.W_Q
+        K = encoder_out @ self.W_K
+        V = encoder_out @ self.W_V
+
+        scores = Q @ K.transpose(-2, -1)
+        scores = scores / torch.sqrt(torch.tensor(encoder_out.shape[-1], dtype=encoder_out.dtype, device=encoder_out.device))
+
+        attention = softmax(scores)
+        output = attention @ V
+
+        return output
 
 
-def cross_attention(encoder_out, decoder_state, params=None, prefix="cross_attention"):
-    d_model = encoder_out.shape[-1]
+class MaskedSelfAttention(nn.Module):
+    def __init__(self, d_model):
+        super().__init__()
+        self.W_Q = nn.Parameter(torch.randn(d_model, d_model) * 0.01)
+        self.W_K = nn.Parameter(torch.randn(d_model, d_model) * 0.01)
+        self.W_V = nn.Parameter(torch.randn(d_model, d_model) * 0.01)
 
-    if params is None:
-        params = init_cross_attention_params(d_model, prefix=prefix)
+    def forward(self, Y):
+        Q = Y @ self.W_Q
+        K = Y @ self.W_K
+        V = Y @ self.W_V
 
-    W_Q = params["W_Q"]
-    W_K = params["W_K"]
-    W_V = params["W_V"]
+        mask = look_ahead_mask(Y.shape[1], device=Y.device)
 
-    Q = decoder_state @ W_Q
-    K = encoder_out @ W_K
-    V = encoder_out @ W_V
+        output, attention_weights = scaled_dot_product_attention(Q, K, V, mask)
 
-    scores = Q @ K.transpose(0, 2, 1)
-    scores = scores / np.sqrt(d_model)
-
-    attention = softmax(scores)
-    output = attention @ V
-
-    return output
+        return output, attention_weights
 
 
-def masked_self_attention(Y, params=None, prefix="masked_self_attention"):
-    d_model = Y.shape[-1]
-
-    if params is None:
-        params = init_attention_params(d_model, prefix=prefix)
-
-    W_Q = params["W_Q"]
-    W_K = params["W_K"]
-    W_V = params["W_V"]
-
-    Q = Y @ W_Q
-    K = Y @ W_K
-    V = Y @ W_V
-
-    mask = look_ahead_mask(Y.shape[1])
-
-    output, attention_weights = scaled_dot_product_attention(Q, K, V, mask)
-
-    return output, attention_weights
-
-
-def generate_next_token(current_sequence, encoder_out):
-    vocab_size = 10000
-
-    probs = np.random.rand(vocab_size)
-    probs = probs / np.sum(probs)
-
+def generate_next_token(current_sequence, encoder_out, vocab_size=10000):
+    probs = torch.rand(vocab_size, device=encoder_out.device)
+    probs = probs / probs.sum()
     return probs
 
 
 def autoregressive_loop():
-    encoder_out = np.random.rand(1, 10, 512)
+    encoder_out = torch.rand(1, 10, 512)
 
     vocab = ["No", "i", "am", "your", "father", ".", "<EOS>"]
     sequence = ["<START>"]
@@ -83,7 +65,7 @@ def autoregressive_loop():
     while True:
         probs = generate_next_token(sequence, encoder_out)
 
-        token_index = np.argmax(probs)
+        token_index = torch.argmax(probs).item()
         next_token = vocab[token_index % len(vocab)]
 
         sequence.append(next_token)
@@ -100,15 +82,17 @@ if __name__ == "__main__":
     print(look_ahead_mask(5)[0])
 
     print("\nTeste cross-attention:")
-    encoder_output = np.random.rand(1, 10, 512)
-    decoder_state = np.random.rand(1, 4, 512)
+    encoder_output = torch.rand(1, 10, 512)
+    decoder_state = torch.rand(1, 4, 512)
 
+    cross_attention = CrossAttention(d_model=512)
     cross_output = cross_attention(encoder_output, decoder_state)
     print("Cross-attention shape:", cross_output.shape)
 
     print("\nTeste masked self-attention:")
-    Y = np.random.rand(1, 4, 512)
-    masked_output, masked_weights = masked_self_attention(Y)
+    Y = torch.rand(1, 4, 512)
+    masked_attention = MaskedSelfAttention(d_model=512)
+    masked_output, masked_weights = masked_attention(Y)
     print("Masked self-attention output shape:", masked_output.shape)
     print("Masked self-attention weights shape:", masked_weights.shape)
 
