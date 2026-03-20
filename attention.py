@@ -1,24 +1,18 @@
-import numpy as np
+import torch
+import torch.nn as nn
 
-np.random.seed(42)
-
-ATTENTION_PARAMS = {}
-FFN_PARAMS = {}
+torch.manual_seed(42)
 
 
 def softmax(z):
-    z = np.array(z)
-    z = z - np.max(z, axis=-1, keepdims=True)
-    exp_scores = np.exp(z)
-    probs = exp_scores / np.sum(exp_scores, axis=-1, keepdims=True)
-    return probs
+    return torch.softmax(z, dim=-1)
 
 
 def scaled_dot_product_attention(Q, K, V, mask=None):
-    scores = Q @ K.transpose(0, 2, 1)
+    scores = Q @ K.transpose(-2, -1)
 
     d_k = K.shape[-1]
-    scores = scores / np.sqrt(d_k)
+    scores = scores / torch.sqrt(torch.tensor(d_k, dtype=Q.dtype, device=Q.device))
 
     if mask is not None:
         scores = scores + mask
@@ -30,9 +24,9 @@ def scaled_dot_product_attention(Q, K, V, mask=None):
 
 
 def layer_norm(x, eps=1e-6):
-    mean = np.mean(x, axis=-1, keepdims=True)
-    var = np.var(x, axis=-1, keepdims=True)
-    return (x - mean) / np.sqrt(var + eps)
+    mean = x.mean(dim=-1, keepdim=True)
+    var = x.var(dim=-1, keepdim=True, unbiased=False)
+    return (x - mean) / torch.sqrt(var + eps)
 
 
 def add_and_norm(X, sublayer_output):
@@ -41,73 +35,48 @@ def add_and_norm(X, sublayer_output):
 
 
 def relu(x):
-    return np.maximum(0, x)
+    return torch.relu(x)
 
 
-def init_attention_params(d_model, prefix="self_attention"):
-    if prefix not in ATTENTION_PARAMS:
-        ATTENTION_PARAMS[prefix] = {
-            "W_Q": np.random.rand(d_model, d_model) * 0.01,
-            "W_K": np.random.rand(d_model, d_model) * 0.01,
-            "W_V": np.random.rand(d_model, d_model) * 0.01,
-        }
-    return ATTENTION_PARAMS[prefix]
+class FeedForward(nn.Module):
+    def __init__(self, d_model, d_ff=256):
+        super().__init__()
+        self.W1 = nn.Parameter(torch.randn(d_model, d_ff) * 0.01)
+        self.b1 = nn.Parameter(torch.zeros(d_ff))
+        self.W2 = nn.Parameter(torch.randn(d_ff, d_model) * 0.01)
+        self.b2 = nn.Parameter(torch.zeros(d_model))
+
+    def forward(self, X):
+        hidden = X @ self.W1 + self.b1
+        hidden = relu(hidden)
+        output = hidden @ self.W2 + self.b2
+        return output
 
 
-def init_ffn_params(d_model, d_ff=256, prefix="ffn"):
-    if prefix not in FFN_PARAMS:
-        FFN_PARAMS[prefix] = {
-            "W1": np.random.rand(d_model, d_ff) * 0.01,
-            "b1": np.zeros(d_ff),
-            "W2": np.random.rand(d_ff, d_model) * 0.01,
-            "b2": np.zeros(d_model),
-        }
-    return FFN_PARAMS[prefix]
+class SelfAttention(nn.Module):
+    def __init__(self, d_model):
+        super().__init__()
+        self.W_Q = nn.Parameter(torch.randn(d_model, d_model) * 0.01)
+        self.W_K = nn.Parameter(torch.randn(d_model, d_model) * 0.01)
+        self.W_V = nn.Parameter(torch.randn(d_model, d_model) * 0.01)
 
+    def forward(self, X, mask=None):
+        Q = X @ self.W_Q
+        K = X @ self.W_K
+        V = X @ self.W_V
 
-def feed_forward(X, params=None, prefix="ffn"):
-    d_model = X.shape[-1]
-
-    if params is None:
-        params = init_ffn_params(d_model, prefix=prefix)
-
-    W1 = params["W1"]
-    b1 = params["b1"]
-    W2 = params["W2"]
-    b2 = params["b2"]
-
-    hidden = X @ W1 + b1
-    hidden = relu(hidden)
-    output = hidden @ W2 + b2
-    return output
-
-
-def self_attention(X, mask=None, params=None, prefix="self_attention"):
-    d_model = X.shape[-1]
-
-    if params is None:
-        params = init_attention_params(d_model, prefix=prefix)
-
-    W_Q = params["W_Q"]
-    W_K = params["W_K"]
-    W_V = params["W_V"]
-
-    Q = X @ W_Q
-    K = X @ W_K
-    V = X @ W_V
-
-    output, attention_weights = scaled_dot_product_attention(Q, K, V, mask)
-
-    return output
+        output, attention_weights = scaled_dot_product_attention(Q, K, V, mask)
+        return output, attention_weights
 
 
 def run_attention_demo():
-    vector_array = [2.0, 1.0, 0.1]
+    vector_array = torch.tensor([2.0, 1.0, 0.1])
 
     print("Teste softmax:", softmax(vector_array))
 
-    X = np.random.rand(1, 10, 16)
-    output = self_attention(X)
+    X = torch.rand(1, 10, 16)
+    attention = SelfAttention(d_model=16)
+    output, _ = attention(X)
 
     print("\nShape da saída:", output.shape)
 
