@@ -1,9 +1,11 @@
 from datasets import load_dataset
 from transformers import AutoTokenizer
 import torch
+from torch.utils.data import TensorDataset, DataLoader
 
 MAX_SAMPLES = 500
 MAX_LENGTH = 32
+BATCH_SIZE = 8
 
 dataset = load_dataset("bentrevett/multi30k", split="train")
 dataset = dataset.select(range(MAX_SAMPLES))
@@ -38,29 +40,41 @@ def process_example(example):
 
     return {
         "encoder_input": src_tokens["input_ids"],
-        "decoder_input": tgt_tokens["input_ids"],
+        "decoder_full": tgt_tokens["input_ids"],
     }
+
 
 processed_dataset = dataset.map(process_example)
 
 processed_dataset = processed_dataset.remove_columns(
-    [col for col in processed_dataset.column_names if col not in ["encoder_input", "decoder_input"]]
+    [col for col in processed_dataset.column_names if col not in ["encoder_input", "decoder_full"]]
 )
 
 
 def get_tensors():
     encoder_inputs = torch.tensor(processed_dataset["encoder_input"], dtype=torch.long)
-    decoder_inputs = torch.tensor(processed_dataset["decoder_input"], dtype=torch.long)
-    return encoder_inputs, decoder_inputs
+    decoder_full = torch.tensor(processed_dataset["decoder_full"], dtype=torch.long)
+
+    decoder_inputs = decoder_full[:, :-1]
+    target_outputs = decoder_full[:, 1:]
+
+    return encoder_inputs, decoder_inputs, target_outputs
+
+
+def get_dataloader(batch_size=BATCH_SIZE):
+    encoder_inputs, decoder_inputs, target_outputs = get_tensors()
+
+    dataset = TensorDataset(encoder_inputs, decoder_inputs, target_outputs)
+
+    return DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 
 if __name__ == "__main__":
-    enc, dec = get_tensors()
+    enc, dec_in, tgt_out = get_tensors()
 
-    print("Encoder shape:", enc.shape)
-    print("Decoder shape:", dec.shape)
+    print(enc.shape)
+    print(dec_in.shape)
+    print(tgt_out.shape)
 
-    print("\nExemplo:")
-    print("Encoder:", enc[0])
-    print("Decoder:", dec[0])
-    print("PAD_TOKEN_ID:", PAD_TOKEN_ID)
+    batch = next(iter(get_dataloader()))
+    print(batch[0].shape, batch[1].shape, batch[2].shape)
