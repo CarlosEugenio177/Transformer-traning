@@ -22,7 +22,9 @@ pip install sentencepiece
 ```
 
 ## Resultados de Treinamento
-
+```
+python3 train.py (AMBIENTE LINUX)
+```
 Loss por época:
 
 [8.2894, 5.6961, 5.104, 4.6067, 4.168, 3.7829, 3.4452, 3.1468, 2.8679, 2.6118]
