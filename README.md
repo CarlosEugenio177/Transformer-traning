@@ -1,4 +1,14 @@
 # Transformer Completo — Laboratório 5
+## PIPs utilizados
+
+```
+pip install torch
+pip install datasets
+pip install transformers
+pip install tqdm
+pip install sentencepiece
+```
+## Rode primeiro
 ```
 python3 data.py (AMBIENTE LINUX)
 ```
@@ -13,17 +23,8 @@ Implementação completa de um Transformer (Encoder + Decoder) construída manua
 - train.py
 - test.py
 
-## PIPs utilizados
-
-```
-pip install torch
-pip install datasets
-pip install transformers
-pip install tqdm
-pip install sentencepiece
-```
-
 ## Resultados de Treinamento
+### Rode em seguida
 ```
 python3 train.py (AMBIENTE LINUX)
 ```
@@ -38,6 +39,7 @@ Gráfico de perda:
 Observação: A perda caiu consistentemente, demonstrando aprendizado.
 
 ## Teste de Overfitting
+### Rode por ultimo
 ```
 python3 test.py (AMBIENTE LINUX)
 ```
