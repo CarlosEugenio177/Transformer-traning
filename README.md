@@ -34,7 +34,9 @@ Gráfico de perda:
 Observação: A perda caiu consistentemente, demonstrando aprendizado.
 
 ## Teste de Overfitting
-
+```
+python3 test.py (AMBIENTE LINUX)
+```
 Entrada:
 Two young, White males are outside near many bushes.
 
