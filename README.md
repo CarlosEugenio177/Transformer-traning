@@ -1,10 +1,12 @@
 # Transformer Completo — Laboratório 5
-
+```
+python3 data.py (AMBIENTE LINUX)
+```
 ## Descrição
 Implementação completa de um Transformer (Encoder + Decoder) construída manualmente e treinada com PyTorch.
 
 ## Estrutura
-- data.py
+- data.py 
 - attention.py
 - decoder.py
 - transformer.py
